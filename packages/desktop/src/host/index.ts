@@ -2908,7 +2908,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
                   },
                 ]
               : [];
-        // Main 已按最近使用顺序把启动预热限制为 3 个；Host 必须显式消费这份
+        // Main 已把启动预热收敛到当前激活 workspace（最新使用的一个）；Host 必须显式消费这份
         // 固定名单，不能让后续 task-list observer 再隐式扩大，也不能因单个失败扫描补位。
         agentWarmupTargets.forEach((target, index) => {
           warmUpZCodeAgent(

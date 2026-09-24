@@ -37,7 +37,10 @@ export interface StartupWorkspaceWarmupTarget {
   workspaceIdentity?: string;
 }
 
-const STARTUP_AGENT_WARMUP_LIMIT = 3;
+// 启动期完全不预热 Agent。侧栏始终是元数据（标题/摘要）订阅，不依赖 Agent 进程；
+// Agent 运行时（app-server 及其插件宿主，每组约 0.5GB）在用户首次交互或点开会话时
+// 才按需冷启动。保持为 0：常驻多组进程的内存代价远大于首次使用的冷启动延迟。
+const STARTUP_AGENT_WARMUP_LIMIT = 0;
 
 export interface StartupWindowBootstrap {
   restoreSession?: boolean;
@@ -83,6 +86,9 @@ function resolveStartupAgentWarmupTargets(
   ];
   const seen = new Set<string>();
   const targets: StartupWorkspaceWarmupTarget[] = [];
+  if (STARTUP_AGENT_WARMUP_LIMIT <= 0) {
+    return targets;
+  }
 
   for (const candidate of candidates) {
     const workspaceKey = candidate.workspaceIdentity?.trim() || candidate.workspacePath;
@@ -103,7 +109,6 @@ export function createOpenWorkspaceStartupBootstrap(workspacePath: string): Star
   return {
     initialWorkspacePath: workspacePath,
     initialWorkspacePurpose: "project",
-    agentWarmupTargets: [{ workspacePath }],
   };
 }
 
@@ -145,27 +150,26 @@ export async function resolveStartupWindowBootstrap({
     const activeSession =
       localActiveSessionIndex == null ? undefined : sessions[localActiveSessionIndex];
     if (activeSession?.kind === "local") {
-      // 被动 sessions-index 全量恢复不能再启动全部 workspace，但只预热当前一个又让
-      // 用户在最近项目间切换重新承担完整冷启动。Main 在唯一启动边界固定选出最近 3 个，
-      // Host 仍走原 initializeWorkspace 路径；失败不继续扫描第 4 个补位。
+      // 启动期不预热任何 Agent：被动 sessions-index 全量恢复与任务列表都读
+      // tasks-index SQLite 元数据；Agent 运行时由用户首次交互按需冷启动。
       const agentWarmupTargets = resolveStartupAgentWarmupTargets(settings, {
         workspacePath: activeSession.workspacePath,
       });
       return {
         ...(unavailableWorkspacePath ? { unavailableWorkspacePath } : {}),
-        agentWarmupTargets,
+        ...(agentWarmupTargets.length > 0 ? { agentWarmupTargets } : {}),
       };
     }
     return unavailableWorkspacePath ? { unavailableWorkspacePath } : {};
   }
 
-  // UI 可以没有项目，但 Agent 必须始终有真实 cwd。首次启动统一预热
-  // app-managed conversation backing workspace，不能再创建会被误认成项目的 ZCodeProject。
+  // UI 可以没有项目，但 Agent 必须始终有真实 cwd。首次启动不再预热 Agent，
+  // 仅提供 app-managed conversation backing workspace 作为 cwd 兜底，
+  // 不能创建会被误认成项目的 ZCodeProject。
   await mkdir(conversationWorkspaceDir, { recursive: true });
   logger?.info?.("[startup-workspace] using conversation workspace:", conversationWorkspaceDir);
   return {
     initialWorkspacePath: conversationWorkspaceDir,
     initialWorkspacePurpose: "conversation",
-    agentWarmupTargets: [{ workspacePath: conversationWorkspaceDir }],
   };
 }
