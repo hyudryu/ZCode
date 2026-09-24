@@ -37,7 +37,10 @@ export interface StartupWorkspaceWarmupTarget {
   workspaceIdentity?: string;
 }
 
-const STARTUP_AGENT_WARMUP_LIMIT = 3;
+// 只预热当前激活 workspace。历史会话侧栏始终是元数据（标题/摘要）订阅，不依赖
+// Agent 进程；最近项目在用户点开时才冷启动，避免启动期常驻多组 app-server 与
+// 插件宿主进程（每组约 0.5GB）。不要调回多预热：常驻内存代价远大于切换时的冷启动。
+const STARTUP_AGENT_WARMUP_LIMIT = 1;
 
 export interface StartupWindowBootstrap {
   restoreSession?: boolean;
@@ -145,9 +148,9 @@ export async function resolveStartupWindowBootstrap({
     const activeSession =
       localActiveSessionIndex == null ? undefined : sessions[localActiveSessionIndex];
     if (activeSession?.kind === "local") {
-      // 被动 sessions-index 全量恢复不能再启动全部 workspace，但只预热当前一个又让
-      // 用户在最近项目间切换重新承担完整冷启动。Main 在唯一启动边界固定选出最近 3 个，
-      // Host 仍走原 initializeWorkspace 路径；失败不继续扫描第 4 个补位。
+      // 被动 sessions-index 全量恢复不能启动任何 Agent；只预热当前激活这一个。
+      // 最近项目在用户点开时按需冷启动，由 Host 的 initializeWorkspace 路径承接；
+      // 失败不继续扫描下一个补位。
       const agentWarmupTargets = resolveStartupAgentWarmupTargets(settings, {
         workspacePath: activeSession.workspacePath,
       });
