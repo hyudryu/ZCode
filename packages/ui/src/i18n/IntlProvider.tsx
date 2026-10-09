@@ -145,6 +145,7 @@ export function ZCodeIntlProvider({
   settingService,
   broadcastService,
   initialLocale,
+  forcedLocale,
   preferSettingServiceLocale = false,
   resolveSystemLocale: resolveHostSystemLocale,
 }: {
@@ -152,6 +153,12 @@ export function ZCodeIntlProvider({
   settingService?: ISettingService;
   broadcastService?: Pick<IBroadcastService, "send" | "onMessage">;
   initialLocale?: Locale;
+  /**
+   * 本界面固定使用的语言，优先级高于用户偏好、系统语言和跨窗口广播。
+   * 手机远控等浏览器入口用它把界面锁成英文：设备语言和桌面 setting.json 都不再影响渲染，
+   * 同时该界面也不会把自己的系统语言回写进共享 setting.json。
+   */
+  forcedLocale?: Locale;
   preferSettingServiceLocale?: boolean;
   resolveSystemLocale?: () => Locale | Promise<Locale>;
 }) {
@@ -242,12 +249,14 @@ export function ZCodeIntlProvider({
             return;
           }
           setSystemLocale(resolvedLocale);
-          if (settings.locale !== resolvedLocale) {
+          if (settings.locale !== resolvedLocale && !forcedLocale) {
             // setting.json 里的 locale 是 main 进程菜单、远控等非浏览器上下文的实际语言。
             // system 模式必须使用宿主系统语言；Electron renderer 的 navigator.language 可能和
             // macOS app.getLocale() 不一致，直接写回会把中文系统错误持久化成英文。
             enqueueLocalePreferenceUpdate(initialOperationSeq, resolvedLocale, "system");
           }
+          // forcedLocale 界面（手机远控）跳过上面的回写：它渲染的语言不等于用户的偏好，
+          // 把自己的系统语言写进共享 setting.json 会反过来改掉桌面端语言。
         }
       }
     });
@@ -255,6 +264,7 @@ export function ZCodeIntlProvider({
       disposed = true;
     };
   }, [
+    forcedLocale,
     persistLocalePreference,
     preferSettingServiceLocale,
     readStoredPreference,
@@ -264,8 +274,11 @@ export function ZCodeIntlProvider({
   ]);
 
   const locale = useMemo<Locale>(() => {
+    if (forcedLocale) {
+      return forcedLocale;
+    }
     return localePreference === "system" ? systemLocale : localePreference;
-  }, [localePreference, systemLocale]);
+  }, [forcedLocale, localePreference, systemLocale]);
 
   const setLocalePreference = useCallback(
     (newPreference: LocalePreference) => {

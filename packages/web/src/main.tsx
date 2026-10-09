@@ -31,6 +31,13 @@ import {
 import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from "@zcode/shared";
 import { WEB_DEFAULT_THEME, resolveWebInitialTheme } from "./webThemeSeed.js";
 
+/**
+ * 浏览器入口（桌面浏览器与手机远控）固定使用的界面语言。
+ * 手机远控的界面语言必须与设备语言解耦：设备系统语言和桌面 setting.json 都可能是中文，
+ * 但远控界面本身保持英文，避免同一语言设置在不同设备上渲染出不同语言的界面。
+ */
+const WEB_UI_LOCALE = "en-US" as const;
+
 function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): Theme {
   const saved = localStorage.getItem("zcode-theme");
   return resolveWebInitialTheme({ storedTheme: saved, defaultTheme });
@@ -242,8 +249,9 @@ function createWebPlatform(): IPlatformService {
       window.open(feedbackUrl, "_blank", "noopener,noreferrer");
     },
     openCommunity: async () => {
-      const locale = document.documentElement.lang === "en-US" ? "en-US" : "zh-CN";
-      const communityUrl = await resolveWebCommunityUrl(locale);
+      // index.html 固定 lang="en"，按 documentElement.lang 判断会一直落到中文社区链接。
+      // 浏览器入口界面固定英文，社区入口也用英文，避免界面语言和跳转目标语言不一致。
+      const communityUrl = await resolveWebCommunityUrl(WEB_UI_LOCALE);
       if (!communityUrl) {
         return;
       }
@@ -395,9 +403,8 @@ function WebBootstrapErrorScreen({ message }: { message: string }) {
         <section className="w-full rounded-xl border border-card-border bg-card p-5">
           <div className="flex items-center gap-3">
             <span className="size-2 rounded-full bg-destructive" />
-            <h1 className="text-ui-xs font-medium">
-              {/^zh\b/i.test(navigator.language) ? "Web 启动失败" : "Web bootstrap failed"}
-            </h1>
+            {/* 浏览器入口界面固定英文（见 WEB_UI_LOCALE），启动失败页也不能按设备语言渲染中文。 */}
+            <h1 className="text-ui-xs font-medium">Web bootstrap failed</h1>
           </div>
           <p className="mt-2 break-all text-ui-xs/relaxed text-foreground-subtle">{message}</p>
           <button
@@ -407,7 +414,7 @@ function WebBootstrapErrorScreen({ message }: { message: string }) {
               window.location.reload();
             }}
           >
-            {/^zh\b/i.test(navigator.language) ? "重试" : "Retry"}
+            Retry
           </button>
         </section>
       </div>
@@ -434,6 +441,9 @@ async function bootstrapWebApp() {
     return;
   }
 
+  // 界面固定英文（见 WEB_UI_LOCALE），文档语言要一起对齐，否则浏览器翻译和无障碍会把英文界面当中文页处理。
+  document.documentElement.lang = WEB_UI_LOCALE;
+
   let bootstrap: WebBootstrapResult;
   try {
     bootstrap = await resolveWebBootstrap();
@@ -454,6 +464,7 @@ async function bootstrapWebApp() {
         <ZCodeIntlProvider
           settingService={services.settingService}
           broadcastService={services.broadcastService}
+          forcedLocale={WEB_UI_LOCALE}
         >
           <Root
             services={services}
